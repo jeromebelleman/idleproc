@@ -1,0 +1,64 @@
+#! /usr/bin/env python
+
+import argparse
+import time
+import sys
+import urwid
+
+THRESHOLD = 5
+CYCLE = 10
+
+PALETTE = [
+              ('cool', 'light blue', 'black'),
+          ]
+
+def cb(main_loop, user_data):
+    pid, before, threshold, txt, cycle = user_data
+
+    # Read CPU time
+    try:
+        f = open('/proc/%d/stat' % pid)
+        l = f.readline().split()
+        after = int(l[13]) + int(l[14])
+        f.close()
+
+        # Has there been any work done?
+        if after - before < threshold:
+            sys.stdout.write("\a")
+            txt.set_text("%d (idle)" % (after - before))
+        else:
+            txt.set_text("%d" % (after - before))
+
+        # Prepare to cycle
+        before = after
+        main_loop.set_alarm_in(cycle, cb, (pid, before, threshold, txt, cycle))
+    except IOError, (errno, strerr):
+        txt.set_text("%d: No such process" % pid)
+
+def exit(input):
+    if input in ('Q'):
+        raise urwid.ExitMainLoop()
+
+def main():
+    desc = "Report if a process gets idle (e.g. a daemon getting bored)"
+    parser = argparse.ArgumentParser(description=desc)
+    parser.add_argument('pid', help="PID of the process to probe", type=int)
+    help = "CPU seconds threshold (defaults to %d)" % THRESHOLD
+    parser.add_argument('--threshold', help=help, type=int, default=THRESHOLD)
+    help = "probe cycle in seconds (defaults to %d)" % CYCLE
+    parser.add_argument('--cycle', help=help, type=int, default=CYCLE)
+    args = parser.parse_args()
+
+    txt = urwid.Text("Measuring activity for %d..." % args.pid)
+    fill = urwid.Filler(txt, 'top')
+    loop = urwid.MainLoop(fill, unhandled_input=exit)
+    before = 0
+    user_data = (args.pid, before, args.threshold, txt, args.cycle)
+    loop.set_alarm_in(args.cycle, cb, user_data)
+    try:
+        loop.run()
+    except KeyboardInterrupt:
+        pass
+
+if __name__ == '__main__':
+    main()
